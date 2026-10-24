@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mhd Social</title>
+<style>
+:root{--bg:#050816;--card:rgba(14,22,52,.8);--tx:#e8f0ff;--mu:#8da2c8;--pr:#22d3ee;--bd:rgba(56,189,248,.22);--grad:linear-gradient(135deg,#22d3ee,#6366f1 52%,#d946ef)}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:radial-gradient(700px 420px at 90% -8%,rgba(99,102,241,.35),transparent 62%),radial-gradient(600px 400px at 0 100%,rgba(217,70,239,.2),transparent 60%),var(--bg);color:var(--tx);font-family:Tajawal,system-ui,Tahoma,Arial,sans-serif;font-size:16px;color-scheme:dark;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#app{height:100%;display:flex;flex-direction:column;max-width:600px;margin:auto}
+header{display:flex;align-items:center;justify-content:space-between;margin:10px 12px 0;padding:12px 16px;border:1px solid var(--bd);border-radius:22px;background:rgba(8,14,36,.7)}
+h1{margin:0;font-size:20px;font-family:Orbitron,Tajawal,sans-serif;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+main{flex:1;overflow-y:auto;padding:14px 12px}
+nav{display:flex;margin:0 12px 10px;padding:6px;border:1px solid var(--bd);border-radius:26px;background:rgba(8,14,36,.85)}
+nav button{flex:1;background:none;border:0;color:var(--mu);font:inherit;padding:10px;border-radius:20px}nav .on{background:var(--grad);color:#fff}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:22px;padding:16px;margin-bottom:14px}
+.row{display:flex;align-items:center;gap:10px}.sp{flex:1}
+.av{width:44px;height:44px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:700;object-fit:cover;flex:none}
+.big{width:96px;height:96px;font-size:34px}
+small,.mu{color:var(--mu);font-size:12px}
+input,textarea,select{width:100%;padding:12px;margin:4px 0;border:1px solid var(--bd);border-radius:16px;background:rgba(255,255,255,.05);color:var(--tx);font:inherit}
+textarea{min-height:64px;resize:none}option{background:#0b1230}
+.btn{background:var(--grad);color:#fff;border:0;border-radius:14px;padding:10px 18px;font:inherit;font-weight:700}
+.btn.g{background:rgba(34,211,238,.08);border:1px solid var(--bd);color:#cfe9ff}.btn.r{background:#e11d48}
+.pi{width:100%;border-radius:18px;margin-top:10px;max-height:380px;object-fit:cover}
+.acts{display:flex;border-top:1px solid var(--bd);margin-top:10px;padding-top:6px}
+.acts button{flex:1;background:none;border:0;color:var(--mu);font:inherit;padding:8px}.acts .on{color:#ff4fd8}
+.cm{background:rgba(255,255,255,.05);border-radius:14px;padding:8px 12px;margin-top:8px;font-size:14px}
+.auth{max-width:420px;margin:auto;padding:30px 20px;width:100%}.auth h1{font-size:32px;text-align:center}
+#toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:#6366f1;color:#fff;padding:10px 18px;border-radius:16px;display:none;z-index:9;max-width:90%}
+a{color:var(--pr)}
+</style>
+</head>
+<body>
+<div id="app"></div><div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== 1) الإعدادات: عدّل هذين السطرين فقط (Supabase → Project Settings → API) =====
+   مفتاح anon آمن في الواجهة بشرط تفعيل RLS. لا تضع مفتاح service_role هنا أبدًا. */
+const SUPABASE_URL='https://duxlsmuypiagjozsbuwb.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_A80dSv3LVUqPc4-0CdZ-RA_GsPadHhn';
+
+const $=s=>document.querySelector(s);
+const E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3000)};
+const ago=t=>{const m=Math.floor((Date.now()-new Date(t))/6e4);return m<1?'الآن':m<60?`منذ ${m} د`:m<1440?`منذ ${Math.floor(m/60)} س`:`منذ ${Math.floor(m/1440)} يوم`};
+const av=(n,u,c='')=>u?`<img class="av ${c}" src="${E(u)}" alt="">`:`<div class="av ${c}">${E((n||'?')[0])}</div>`;
+let sb,me=null,prof=null,posts=[],tab='home',mode='in',draft='',img=null,openC=null;
+
+async function boot(){
+  if(SUPABASE_URL.includes('PUT_')){$('#app').innerHTML='<div class="auth card"><h1>Mhd Social</h1><p>عدّل SUPABASE_URL و SUPABASE_ANON_KEY في أعلى الملف.</p></div>';return}
+  sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+  const {data:{session}}=await sb.auth.getSession();await setUser(session?.user);
+  sb.auth.onAuthStateChange((_e,s)=>{if((s?.user?.id||null)!==(me?.id||null))setUser(s?.user)});
+}
+async function setUser(u){me=u||null;prof=null;posts=[];
+  if(me){const {data}=await sb.from('profiles').select('*').eq('id',me.id).single();prof=data;await loadPosts()}
+  render()}
+
+/* ===== المصادقة ===== */
+async function doAuth(){
+  const email=$('#em').value.trim(),password=$('#pw').value;
+  if(!/^\S+@\S+$/.test(email)||password.length<8)return toast('بريد صحيح وكلمة مرور 8 أحرف على الأقل');
+  const r=mode=='up'?await sb.auth.signUp({email,password,options:{data:{name:$('#nm').value.trim()}}}):await sb.auth.signInWithPassword({email,password});
+  if(r.error)return toast(r.error.message);
+  if(mode=='up'&&!r.data.session)toast('تحقق من بريدك لتأكيد الحساب ثم سجّل الدخول');
+}
+const logout=()=>sb.auth.signOut();
+async function delAccount(){
+  if(!confirm('سيُحذف حسابك وكل منشوراتك وصورك نهائيًا. متأكد؟'))return;
+  const {error}=await sb.rpc('delete_my_account');if(error)return toast(error.message);
+  await sb.auth.signOut();toast('تم حذف الحساب')}
+
+/* ===== الصور ===== */
+const resize=(f,max)=>new Promise(res=>{const i=new Image();i.onload=()=>{const k=Math.min(1,max/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);c.toBlob(res,'image/jpeg',.75)};i.src=URL.createObjectURL(f)});
+async function upload(bucket,blob){const path=`${me.id}/${Date.now()}.jpg`;
+  const {error}=await sb.storage.from(bucket).upload(path,blob,{contentType:'image/jpeg'});if(error)throw error;
+  return sb.storage.from(bucket).getPublicUrl(path).data.publicUrl}
+async function pickImg(f){if(!f)return;img=await resize(f,1000);toast('تم اختيار الصورة ✓')}
+async function setAvatar(f){if(!f)return;try{const url=await upload('avatars',await resize(f,300));
+  const {error}=await sb.from('profiles').update({photo_url:url}).eq('id',me.id);if(error)throw error;prof.photo_url=url;render()}catch(e){toast(e.message)}}
+
+/* ===== المنشورات ===== */
+async function loadPosts(){
+  const {data,error}=await sb.from('posts').select('id,body,image_url,created_at,user_id,profiles(name,photo_url),likes(user_id),comments(id,body,created_at,profiles(name))').order('created_at',{ascending:false}).limit(30);
+  if(error)toast(error.message);posts=data||[]}
+async function publish(){
+  const body=draft.trim();if(!body&&!img)return;
+  try{const image_url=img?await upload('post-images',img):null;
+    const {error}=await sb.from('posts').insert({user_id:me.id,body,image_url,visibility:prof.post_vis});if(error)throw error;
+    draft='';img=null;await loadPosts();render()}catch(e){toast(e.message)}}
+async function like(id){const p=posts.find(x=>x.id==id),has=p.likes.some(l=>l.user_id==me.id);
+  const r=has?await sb.from('likes').delete().match({post_id:id,user_id:me.id}):await sb.from('likes').insert({post_id:id,user_id:me.id});
+  if(r.error)return toast(r.error.message);await loadPosts();render()}
+async function comment(id){const v=$('#c'+id).value.trim();if(!v)return;
+  const {error}=await sb.from('comments').insert({post_id:id,user_id:me.id,body:v});if(error)return toast(error.message);await loadPosts();render()}
+async function delPost(id){if(!confirm('حذف المنشور؟'))return;const {error}=await sb.from('posts').delete().eq('id',id);if(error)return toast(error.message);await loadPosts();render()}
+const togC=id=>{openC=openC==id?null:id;render()};
+
+/* ===== الملف الشخصي ===== */
+async function saveProf(){
+  const upd={name:$('#sn').value.trim()||prof.name,bio:$('#sb').value.trim(),post_vis:$('#sv').value,allow_requests:$('#sr').value=='1',allow_msgs:$('#sm').value};
+  const {error}=await sb.from('profiles').update(upd).eq('id',me.id);if(error)return toast(error.message);Object.assign(prof,upd);toast('تم الحفظ ✓');render()}
+const sel=(id,v,o)=>`<select id="${id}">${o.map(([k,l])=>`<option value="${k}" ${String(v)==k?'selected':''}>${l}</option>`).join('')}</select>`;
+
+/* ===== العرض ===== */
+const authV=()=>`<div class="auth"><h1>Mhd Social</h1><div class="card">${mode=='up'?'<input id="nm" placeholder="الاسم الكامل">':''}<input id="em" type="email" placeholder="البريد الإلكتروني" dir="ltr"><input id="pw" type="password" placeholder="كلمة المرور (8 أحرف+)" dir="ltr"><button class="btn" style="width:100%;margin-top:8px" onclick="doAuth()">${mode=='up'?'إنشاء حساب':'تسجيل الدخول'}</button></div><p style="text-align:center"><a href="#" onclick="mode=mode=='up'?'in':'up';render();return false">${mode=='up'?'لديك حساب؟ سجّل الدخول':'مستخدم جديد؟ أنشئ حسابًا'}</a></p><p class="mu" style="text-align:center">© Mhd Social — جميع الحقوق محفوظة</p></div>`;
+const postH=p=>`<article class="card"><div class="row">${av(p.profiles?.name,p.profiles?.photo_url)}<span class="sp"><b>${E(p.profiles?.name)}</b><br><small>${ago(p.created_at)}</small></span>${p.user_id==me.id?`<button class="btn g" onclick="delPost('${p.id}')">🗑</button>`:''}</div>${p.body?`<p style="white-space:pre-wrap;line-height:1.7">${E(p.body)}</p>`:''}${p.image_url?`<img class="pi" src="${E(p.image_url)}" alt="">`:''}<small>${p.likes.length} إعجاب · ${p.comments.length} تعليق</small><div class="acts"><button class="${p.likes.some(l=>l.user_id==me.id)?'on':''}" onclick="like('${p.id}')">❤ إعجاب</button><button onclick="togC('${p.id}')">💬 تعليق</button></div>${openC==p.id?p.comments.map(c=>`<div class="cm"><b>${E(c.profiles?.name)}</b> ${E(c.body)}</div>`).join('')+`<div class="row"><input id="c${p.id}" placeholder="اكتب تعليقًا"><button class="btn" onclick="comment('${p.id}')">إرسال</button></div>`:''}</article>`;
+const homeV=()=>`<div class="card"><textarea placeholder="بماذا تفكر؟" oninput="draft=this.value">${E(draft)}</textarea><div class="row"><label class="btn g">📷 صورة<input type="file" accept="image/*" hidden onchange="pickImg(this.files[0])"></label><span class="sp"></span><button class="btn" onclick="publish()">نشر</button></div></div>${posts.map(postH).join('')||'<p class="mu">لا منشورات بعد</p>'}`;
+const profV=()=>`<div class="card" style="text-align:center">${av(prof.name,prof.photo_url,'big')}<br><label class="btn g" style="display:inline-block;margin-top:10px">تغيير الصورة<input type="file" accept="image/*" hidden onchange="setAvatar(this.files[0])"></label></div><div class="card"><input id="sn" value="${E(prof.name)}" placeholder="الاسم"><textarea id="sb" placeholder="نبذة">${E(prof.bio)}</textarea><small>من يرى منشوراتي</small>${sel('sv',prof.post_vis,[['all','الجميع'],['friends','الأصدقاء فقط']])}<small>طلبات الصداقة</small>${sel('sr',prof.allow_requests?1:0,[['1','أستقبل'],['0','لا أستقبل']])}<small>الرسائل الخاصة</small>${sel('sm',prof.allow_msgs,[['all','من الجميع'],['friends','من الأصدقاء']])}<button class="btn" style="width:100%;margin-top:8px" onclick="saveProf()">حفظ</button></div><button class="btn g" style="width:100%;margin-bottom:8px" onclick="logout()">تسجيل الخروج</button><button class="btn r" style="width:100%" onclick="delAccount()">حذف حسابي نهائيًا</button>`;
+function render(){const a=$('#app');if(!sb)return;
+  if(!me||!prof){a.innerHTML=authV();return}
+  a.innerHTML=`<header><h1>Mhd Social</h1><small>${E(prof.name)}</small></header><main>${tab=='home'?homeV():profV()}</main><nav><button class="${tab=='home'?'on':''}" onclick="tab='home';render()">الرئيسية</button><button class="${tab=='me'?'on':''}" onclick="tab='me';render()">حسابي</button></nav>`}
+boot();
+</script>
+</body>
+</html>
