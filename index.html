@@ -170,4 +170,8 @@ function subscribe(){if(window.ch)sb.removeChannel(window.ch);
 boot();
 </script>
 </body>
-</html>
+</html> <script>
+async function loadPosts(){
+  const {data,error}=await sb.from('posts').select('id,body,image_url,created_at,user_id,profiles!user_id(name,photo_url),likes(user_id),comments(id,body,created_at,profiles!user_id(name))').order('created_at',{ascending:false}).limit(30);
+  if(error)toast(error.message);posts=data||[]}
+</script>
