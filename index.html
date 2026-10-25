@@ -30,6 +30,10 @@ textarea{min-height:64px;resize:none}option{background:#0b1230}
 .auth{max-width:420px;margin:auto;padding:30px 20px;width:100%}.auth h1{font-size:32px;text-align:center}
 #toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:#6366f1;color:#fff;padding:10px 18px;border-radius:16px;display:none;z-index:9;max-width:90%}
 a{color:var(--pr)}
+nav button{position:relative;font-size:11px;padding:8px 2px}nav b{display:block;font-size:19px;line-height:1.2}
+.bdg{background:#e11d48;color:#fff;border-radius:10px;font-size:11px;padding:0 6px}.nb{position:absolute;top:2px;right:50%;margin-right:-24px}
+.bub{max-width:78%;padding:9px 14px;border-radius:18px;margin:4px 0;word-wrap:break-word}.me{background:var(--grad);margin-inline-start:auto}.ot{background:rgba(34,211,238,.1);border:1px solid var(--bd)}
+h3{font-size:15px;margin:16px 4px 10px;color:#9fe9f8}
 </style>
 </head>
 <body>
@@ -55,7 +59,7 @@ async function boot(){
   sb.auth.onAuthStateChange((_e,s)=>{if((s?.user?.id||null)!==(me?.id||null))setUser(s?.user)});
 }
 async function setUser(u){me=u||null;prof=null;posts=[];
-  if(me){const {data}=await sb.from('profiles').select('*').eq('id',me.id).single();prof=data;await loadPosts()}
+  if(me){const {data}=await sb.from('profiles').select('*').eq('id',me.id).single();prof=data;await loadPosts();await loadFr();await loadMsgs();await loadNts();subscribe()}else if(window.ch){sb.removeChannel(window.ch);window.ch=null}
   render()}
 
 /* ===== المصادقة ===== */
@@ -92,9 +96,9 @@ async function publish(){
     draft='';img=null;await loadPosts();render()}catch(e){toast(e.message)}}
 async function like(id){const p=posts.find(x=>x.id==id),has=p.likes.some(l=>l.user_id==me.id);
   const r=has?await sb.from('likes').delete().match({post_id:id,user_id:me.id}):await sb.from('likes').insert({post_id:id,user_id:me.id});
-  if(r.error)return toast(r.error.message);await loadPosts();render()}
+  if(r.error)return toast(r.error.message);if(!has)notify(p.user_id,'like',id);await loadPosts();render()}
 async function comment(id){const v=$('#c'+id).value.trim();if(!v)return;
-  const {error}=await sb.from('comments').insert({post_id:id,user_id:me.id,body:v});if(error)return toast(error.message);await loadPosts();render()}
+  const {error}=await sb.from('comments').insert({post_id:id,user_id:me.id,body:v});if(error)return toast(error.message);notify(posts.find(x=>x.id==id).user_id,'comment',id);await loadPosts();render()}
 async function delPost(id){if(!confirm('حذف المنشور؟'))return;const {error}=await sb.from('posts').delete().eq('id',id);if(error)return toast(error.message);await loadPosts();render()}
 const togC=id=>{openC=openC==id?null:id;render()};
 
@@ -111,7 +115,58 @@ const homeV=()=>`<div class="card"><textarea placeholder="بماذا تفكر؟"
 const profV=()=>`<div class="card" style="text-align:center">${av(prof.name,prof.photo_url,'big')}<br><label class="btn g" style="display:inline-block;margin-top:10px">تغيير الصورة<input type="file" accept="image/*" hidden onchange="setAvatar(this.files[0])"></label></div><div class="card"><input id="sn" value="${E(prof.name)}" placeholder="الاسم"><textarea id="sb" placeholder="نبذة">${E(prof.bio)}</textarea><small>من يرى منشوراتي</small>${sel('sv',prof.post_vis,[['all','الجميع'],['friends','الأصدقاء فقط']])}<small>طلبات الصداقة</small>${sel('sr',prof.allow_requests?1:0,[['1','أستقبل'],['0','لا أستقبل']])}<small>الرسائل الخاصة</small>${sel('sm',prof.allow_msgs,[['all','من الجميع'],['friends','من الأصدقاء']])}<button class="btn" style="width:100%;margin-top:8px" onclick="saveProf()">حفظ</button></div><button class="btn g" style="width:100%;margin-bottom:8px" onclick="logout()">تسجيل الخروج</button><button class="btn r" style="width:100%" onclick="delAccount()">حذف حسابي نهائيًا</button>`;
 function render(){const a=$('#app');if(!sb)return;
   if(!me||!prof){a.innerHTML=authV();return}
-  a.innerHTML=`<header><h1>Mhd Social</h1><small>${E(prof.name)}</small></header><main>${tab=='home'?homeV():profV()}</main><nav><button class="${tab=='home'?'on':''}" onclick="tab='home';render()">الرئيسية</button><button class="${tab=='me'?'on':''}" onclick="tab='me';render()">حسابي</button></nav>`}
+  a.innerHTML=`<header><h1>Mhd Social</h1><small>${E(prof.name)}</small></header><main>${(V[tab]||homeV)()}</main><nav>${NAV()}</nav>`}
+
+/* ===== v3: أصدقاء + بحث + رسائل فورية + إشعارات ===== */
+let fr=[],people=[],q='',chat=null,msgs=[],nts=[];const profs={};
+const PF='id,name,photo_url,bio';
+async function fetchProfs(ids){ids=[...new Set(ids)].filter(i=>i&&i!=me.id&&!profs[i]);if(!ids.length)return;const {data}=await sb.from('profiles').select(PF).in('id',ids);(data||[]).forEach(x=>profs[x.id]=x)}
+async function loadFr(){const {data}=await sb.from('friendships').select('id,requester,addressee,status');fr=data||[];await fetchProfs(fr.flatMap(f=>[f.requester,f.addressee]))}
+async function loadMsgs(){const {data}=await sb.from('messages').select('*').order('created_at').limit(500);msgs=data||[];await fetchProfs(msgs.flatMap(m=>[m.sender_id,m.receiver_id]))}
+async function loadNts(){const {data}=await sb.from('notifications').select('id,actor_id,type,read,created_at').order('created_at',{ascending:false}).limit(40);nts=data||[];await fetchProfs(nts.map(n=>n.actor_id))}
+const rel=id=>{const f=fr.find(x=>x.requester==id||x.addressee==id);return !f?null:f.status=='accepted'?{k:'f',f}:f.requester==me.id?{k:'s',f}:{k:'i',f}};
+const other=f=>profs[f.requester==me.id?f.addressee:f.requester]||{id:'',name:'...'};
+async function notify(to,type,post_id){if(to!=me.id)await sb.from('notifications').insert({user_id:to,actor_id:me.id,type,post_id:post_id||null})}
+
+async function doSearch(v){q=v;const t=v.trim().replace(/[%_,()]/g,'');if(t.length<2){people=[];$('#res').innerHTML='';return}
+  const {data}=await sb.from('profiles').select(PF).ilike('name','%'+t+'%').neq('id',me.id).limit(20);people=data||[];people.forEach(p=>profs[p.id]=p);$('#res').innerHTML=people.map(rowH).join('')||'<p class="mu">لا نتائج</p>'}
+async function reqF(id){const {error}=await sb.from('friendships').insert({requester:me.id,addressee:id});if(error)return toast(/row-level|policy/.test(error.message)?'لا يمكن إرسال طلب لهذا المستخدم':error.message);await notify(id,'req');await loadFr();render()}
+async function accF(fid,from){const {error}=await sb.from('friendships').update({status:'accepted'}).eq('id',fid);if(error)return toast(error.message);await notify(from,'acc');await loadFr();render()}
+async function delF(fid){await sb.from('friendships').delete().eq('id',fid);await loadFr();render()}
+const rowH=p=>{const r=rel(p.id),b=!r?`<button class="btn" onclick="reqF('${p.id}')">+ إضافة</button>`:r.k=='f'?`<button class="btn g" onclick="openChat('${p.id}')">💬</button>`:r.k=='s'?'<button class="btn g" disabled>تم الطلب</button>':`<button class="btn" onclick="accF('${r.f.id}','${p.id}')">قبول</button>`;
+  return`<div class="card row">${av(p.name,p.photo_url)}<span class="sp"><b>${E(p.name)}</b><br><small>${E(p.bio||'')}</small></span>${b}</div>`};
+function friendsV(){const inc=fr.filter(f=>f.status=='pending'&&f.addressee==me.id),fl=fr.filter(f=>f.status=='accepted');
+  return`<input placeholder="🔍 ابحث عن مستخدم بالاسم" value="${E(q)}" oninput="doSearch(this.value)"><div id="res">${people.map(rowH).join('')}</div>
+<h3>طلبات الصداقة (${inc.length})</h3>${inc.map(f=>{const p=other(f);return`<div class="card row">${av(p.name,p.photo_url)}<b class="sp">${E(p.name)}</b><button class="btn" onclick="accF('${f.id}','${p.id}')">قبول</button><button class="btn g" onclick="delF('${f.id}')">رفض</button></div>`}).join('')||'<p class="mu">لا طلبات</p>'}
+<h3>أصدقائي (${fl.length})</h3>${fl.map(f=>{const p=other(f);return`<div class="card row">${av(p.name,p.photo_url)}<b class="sp">${E(p.name)}</b><button class="btn g" onclick="openChat('${p.id}')">💬</button><button class="btn g" onclick="if(confirm('إلغاء الصداقة؟'))delF('${f.id}')">✕</button></div>`}).join('')||'<p class="mu">لا أصدقاء بعد، ابحث وأضف</p>'}`}
+
+/* الرسائل */
+const scrollEnd=()=>{const c=$('#cb');if(c)c.scrollTop=1e9};
+async function markRead(){const ids=msgs.filter(m=>m.receiver_id==me.id&&m.sender_id==chat&&!m.read).map(m=>m.id);if(ids.length){await sb.from('messages').update({read:true}).in('id',ids);msgs.forEach(m=>{if(ids.includes(m.id))m.read=true})}}
+async function openChat(id){chat=id;tab='chat';await fetchProfs([id]);await loadMsgs();await markRead();render();scrollEnd()}
+async function sendM(){const el=$('#mi'),v=el.value.trim();if(!v)return;const {error}=await sb.from('messages').insert({sender_id:me.id,receiver_id:chat,body:v});if(error)return toast(/row-level|policy/.test(error.message)?'هذا المستخدم يقبل رسائل الأصدقاء فقط':error.message);await loadMsgs();render();scrollEnd();$('#mi').focus()}
+function msgsV(){const ids=[...new Set([...msgs.map(m=>m.sender_id==me.id?m.receiver_id:m.sender_id),...fr.filter(f=>f.status=='accepted').map(f=>f.requester==me.id?f.addressee:f.requester)])];
+  return'<h3>المحادثات</h3>'+(ids.map(i=>{const p=profs[i]||{name:'...'},l=[...msgs].reverse().find(m=>m.sender_id==i||m.receiver_id==i),n=msgs.filter(m=>m.sender_id==i&&m.receiver_id==me.id&&!m.read).length;
+  return`<div class="card row" onclick="openChat('${i}')">${av(p.name,p.photo_url)}<span class="sp"><b>${E(p.name)}</b><br><small>${l?E(l.body.slice(0,40)):'ابدأ المحادثة'}</small></span>${n?`<span class="bdg">${n}</span>`:''}</div>`}).join('')||'<p class="mu">أضف أصدقاء لبدء محادثة</p>')}
+function chatV(){const p=profs[chat]||{name:''};
+  return`<div class="row"><button class="btn g" onclick="go('msgs')">→</button>${av(p.name,p.photo_url)}<b class="sp">${E(p.name)}</b></div><div id="cb" style="height:calc(100vh - 300px);overflow-y:auto;padding:8px 0">${msgs.filter(m=>(m.sender_id==chat&&m.receiver_id==me.id)||(m.sender_id==me.id&&m.receiver_id==chat)).map(m=>`<div style="display:flex"><div class="bub ${m.sender_id==me.id?'me':'ot'}">${E(m.body)}<br><small style="opacity:.7">${ago(m.created_at)}</small></div></div>`).join('')}</div><div class="row"><input id="mi" placeholder="اكتب رسالة" onkeydown="event.key=='Enter'&&sendM()"><button class="btn" onclick="sendM()">إرسال</button></div>`}
+
+/* الإشعارات */
+const NT={like:'أعجب بمنشورك ❤️',comment:'علّق على منشورك 💬',req:'أرسل لك طلب صداقة 👋',acc:'قبل طلب صداقتك 🎉'};
+function ntsV(){return nts.map(n=>{const p=profs[n.actor_id]||{name:'...'};return`<div class="card row" style="${n.read?'':'border-color:#22d3ee'}">${av(p.name,p.photo_url)}<span><b>${E(p.name)}</b> ${NT[n.type]||''}<br><small>${ago(n.created_at)}</small></span></div>`}).join('')||'<p class="mu">لا إشعارات</p>'}
+async function openNts(){tab='nts';chat=null;render();const ids=nts.filter(n=>!n.read).map(n=>n.id);if(ids.length){await sb.from('notifications').update({read:true}).in('id',ids);nts.forEach(n=>n.read=true)}}
+
+/* التنقل والوقت الحقيقي */
+const V={home:homeV,friends:friendsV,msgs:msgsV,chat:chatV,nts:ntsV,me:profV};
+const go=t=>{if(t=='nts')return openNts();tab=t;chat=null;render()};
+function NAV(){const nR=fr.filter(f=>f.status=='pending'&&f.addressee==me.id).length,nM=msgs.filter(m=>m.receiver_id==me.id&&!m.read).length,nN=tab=='nts'?0:nts.filter(n=>!n.read).length,act=tab=='chat'?'msgs':tab;
+  return[['home','🏠','الرئيسية',0],['friends','👥','الأصدقاء',nR],['msgs','💬','الرسائل',nM],['nts','🔔','إشعارات',nN],['me','👤','حسابي',0]].map(([k,i,l,n])=>`<button class="${act==k?'on':''}" onclick="go('${k}')"><b>${i}</b>${l}${n?`<span class="bdg nb">${n}</span>`:''}</button>`).join('')}
+function soft(){const m=$('#mi'),v=m?m.value:'',a=document.activeElement;if(!m&&a&&/INPUT|TEXTAREA/.test(a.tagName)&&a.value)return;render();const n=$('#mi');if(n&&v){n.value=v;n.focus()}scrollEnd()}
+function subscribe(){if(window.ch)sb.removeChannel(window.ch);
+  window.ch=sb.channel('mhd-'+me.id)
+   .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'receiver_id=eq.'+me.id},async()=>{await loadMsgs();if(chat)await markRead();soft()})
+   .on('postgres_changes',{event:'INSERT',schema:'public',table:'notifications',filter:'user_id=eq.'+me.id},async()=>{await loadNts();await loadFr();soft()})
+   .subscribe()}
 boot();
 </script>
 </body>
